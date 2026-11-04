@@ -1,0 +1,53 @@
+
+# ==============================
+# Python
+# ==============================
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# ==============================
+# Environment variables
+# ==============================
+.env
+.env.*
+!.env.example
+
+# ==============================
+# IDE
+# ==============================
+.vscode/
+.idea/
+
+# ==============================
+# Jupyter
+# ==============================
+.ipynb_checkpoints/
+
+# ==============================
+# Logs and cache
+# ==============================
+*.log
+logs/
+.cache/
+.pytest_cache/
+
+# ==============================
+# Datasets
+# Ignore all dataset contents
+# but preserve the directory structure
+# ==============================
+datasets/**
+
+# Keep datasets directory structure
+!datasets/
+!datasets/**/
+
+# ==============================
+# OS
+# ==============================
+.DS_Store
+Thumbs.db
