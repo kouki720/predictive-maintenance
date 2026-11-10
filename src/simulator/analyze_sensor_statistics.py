@@ -43,6 +43,18 @@ EXPECTED_INTERVAL_MINUTES = 1
 
 AUTOCORRELATION_LAGS = [1, 5, 10]
 
+# Exception temporelle autorisée :
+# dernière mesure historique -> première mesure simulée.
+LAST_HISTORICAL_TIMESTAMP = "2026-08-31 23:59:00"
+FIRST_SIMULATED_TIMESTAMP = "2026-11-01 00:02:00"
+
+ALLOWED_TEMPORAL_GAPS = {
+    (
+        LAST_HISTORICAL_TIMESTAMP,
+        FIRST_SIMULATED_TIMESTAMP,
+    )
+}
+
 
 # ============================================================
 # JSON HELPERS
@@ -54,7 +66,41 @@ def safe_float(value: Any) -> float | None:
     if value is None or pd.isna(value):
         return None
 
-    return float(value)
+    result = float(value)
+
+    if not pd.notna(result) or result in (float("inf"), float("-inf")):
+        return None
+
+    return result
+
+
+# ============================================================
+# TEMPORAL SEGMENTS
+# ============================================================
+
+def get_temporal_segments(
+    df: pd.DataFrame,
+) -> tuple[pd.Series, pd.Series]:
+    """
+    Identifie les séquences temporelles continues.
+
+    Deux lignes appartiennent à la même séquence uniquement
+    si leurs timestamps sont séparés exactement d'une minute.
+
+    Une coupure temporelle crée une nouvelle séquence.
+    """
+
+    expected_interval = pd.Timedelta(
+        minutes=EXPECTED_INTERVAL_MINUTES
+    )
+
+    intervals = df[TIMESTAMP_COLUMN].diff()
+
+    continuous_transitions = intervals.eq(expected_interval)
+
+    segment_ids = (~continuous_transitions).cumsum()
+
+    return segment_ids, intervals
 
 
 # ============================================================
@@ -118,10 +164,42 @@ def load_and_validate_dataset() -> tuple[pd.DataFrame, list[str]]:
         minutes=EXPECTED_INTERVAL_MINUTES
     )
 
-    if not intervals.eq(expected_interval).all():
+    # Identifier toutes les coupures temporelles.
+    gap_mask = intervals.ne(expected_interval)
+
+    detected_gaps = []
+
+    for index in intervals[gap_mask].index:
+
+        previous_timestamp = df.loc[
+            index - 1,
+            TIMESTAMP_COLUMN,
+        ]
+
+        next_timestamp = df.loc[
+            index,
+            TIMESTAMP_COLUMN,
+        ]
+
+        detected_gaps.append(
+            (
+                previous_timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                next_timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+        )
+
+    # Seule la coupure historique / simulation est autorisée.
+    unexpected_gaps = [
+        gap
+        for gap in detected_gaps
+        if gap not in ALLOWED_TEMPORAL_GAPS
+    ]
+
+    if unexpected_gaps:
         raise ValueError(
-            "Unexpected temporal gaps detected. "
-            "Temporal analysis requires a regular one-minute series."
+            "Unexpected temporal gaps detected: "
+            f"{unexpected_gaps}. "
+            "Only the historical-to-simulation gap is allowed."
         )
 
     for sensor in sensor_columns:
@@ -185,12 +263,29 @@ def calculate_distribution(
 
 def calculate_temporal_variation(
     values: pd.Series,
+    timestamps: pd.Series,
 ) -> dict:
+    """
+    Calcule les variations uniquement entre deux observations
+    consécutives séparées exactement d'une minute.
 
-    # Diff conserve les positions temporelles.
-    # Une valeur manquante ne sera pas ignorée pour
-    # créer artificiellement une variation entre deux instants.
-    differences = values.diff().dropna()
+    Aucune variation n'est calculée à travers une coupure.
+    """
+
+    expected_interval = pd.Timedelta(
+        minutes=EXPECTED_INTERVAL_MINUTES
+    )
+
+    intervals = timestamps.diff()
+
+    continuous_transitions = intervals.eq(expected_interval)
+
+    differences = values.diff()
+
+    # Conserver uniquement les transitions temporelles valides.
+    differences = differences.where(
+        continuous_transitions
+    ).dropna()
 
     absolute_differences = differences.abs()
 
@@ -222,17 +317,52 @@ def calculate_temporal_variation(
 
 def calculate_autocorrelation(
     values: pd.Series,
+    segment_ids: pd.Series,
 ) -> dict:
+    """
+    Calcule l'autocorrélation à l'intérieur de chaque séquence
+    temporelle continue.
+
+    Les paires situées de part et d'autre d'une coupure
+    ne sont jamais utilisées.
+    """
 
     results = {}
 
     for lag in AUTOCORRELATION_LAGS:
 
-        correlation = (
-            values.autocorr(lag=lag)
-            if len(values) > lag
-            else None
-        )
+        all_previous_values = []
+        all_current_values = []
+
+        for _, segment_values in values.groupby(
+            segment_ids,
+            sort=False,
+        ):
+
+            segment_values = segment_values.dropna()
+
+            if len(segment_values) <= lag:
+                continue
+
+            previous_values = segment_values.iloc[:-lag]
+            current_values = segment_values.iloc[lag:]
+
+            all_previous_values.extend(
+                previous_values.tolist()
+            )
+
+            all_current_values.extend(
+                current_values.tolist()
+            )
+
+        if len(all_previous_values) < 2:
+            correlation = None
+        else:
+            correlation = pd.Series(
+                all_previous_values
+            ).corr(
+                pd.Series(all_current_values)
+            )
 
         results[f"lag_{lag}"] = safe_float(correlation)
 
@@ -250,14 +380,26 @@ def analyze_sensors(
 
     sensor_results = {}
 
+    segment_ids, _ = get_temporal_segments(df)
+
+    timestamps = df[TIMESTAMP_COLUMN]
+
     for sensor in sensor_columns:
 
         values = df[sensor]
 
         sensor_results[sensor] = {
             "distribution": calculate_distribution(values),
-            "temporal_variation": calculate_temporal_variation(values),
-            "autocorrelation": calculate_autocorrelation(values),
+
+            "temporal_variation": calculate_temporal_variation(
+                values,
+                timestamps,
+            ),
+
+            "autocorrelation": calculate_autocorrelation(
+                values,
+                segment_ids,
+            ),
         }
 
     return sensor_results
@@ -313,6 +455,76 @@ def calculate_status_distribution(
 
 
 # ============================================================
+# TEMPORAL INFORMATION
+# ============================================================
+
+def calculate_temporal_information(
+    df: pd.DataFrame,
+) -> dict:
+
+    intervals = df[TIMESTAMP_COLUMN].diff().dropna()
+
+    expected_interval = pd.Timedelta(
+        minutes=EXPECTED_INTERVAL_MINUTES
+    )
+
+    gap_details = []
+
+    for index in intervals[
+        intervals.ne(expected_interval)
+    ].index:
+
+        previous_timestamp = df.loc[
+            index - 1,
+            TIMESTAMP_COLUMN,
+        ]
+
+        next_timestamp = df.loc[
+            index,
+            TIMESTAMP_COLUMN,
+        ]
+
+        duration = next_timestamp - previous_timestamp
+
+        gap_details.append({
+            "last_timestamp_before_gap": str(previous_timestamp),
+            "first_timestamp_after_gap": str(next_timestamp),
+            "duration_minutes": int(
+                duration.total_seconds() / 60
+            ),
+            "missing_one_minute_observations": max(
+                0,
+                int(duration.total_seconds() / 60) - 1,
+            ),
+            "type": (
+                "historical_to_simulation"
+                if (
+                    previous_timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                    next_timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                ) in ALLOWED_TEMPORAL_GAPS
+                else "unexpected"
+            ),
+        })
+
+    segment_ids, _ = get_temporal_segments(df)
+
+    return {
+        "first_timestamp": str(
+            df[TIMESTAMP_COLUMN].iloc[0]
+        ),
+        "last_timestamp": str(
+            df[TIMESTAMP_COLUMN].iloc[-1]
+        ),
+        "sampling_interval_minutes": EXPECTED_INTERVAL_MINUTES,
+        "chronological": True,
+        "duplicate_timestamps": 0,
+        "temporal_gaps": len(gap_details),
+        "continuous_segments": int(segment_ids.nunique()),
+        "gap_details": gap_details,
+    }
+
+
+# ============================================================
 # MAIN ANALYSIS
 # ============================================================
 
@@ -330,7 +542,20 @@ def calculate_sensor_statistics() -> None:
     print(f"Dataset dimensions: {df.shape}")
     print(f"Number of sensors: {len(sensor_columns)}")
 
-    # 2. Sensor analysis
+    # 2. Temporal information
+    temporal_information = calculate_temporal_information(df)
+
+    print(
+        f"Temporal gaps detected: "
+        f"{temporal_information['temporal_gaps']}"
+    )
+
+    print(
+        f"Continuous temporal segments: "
+        f"{temporal_information['continuous_segments']}"
+    )
+
+    # 3. Sensor analysis
     print("\nCalculating sensor statistics...")
 
     sensor_results = analyze_sensors(
@@ -338,7 +563,7 @@ def calculate_sensor_statistics() -> None:
         sensor_columns,
     )
 
-    # 3. Correlations
+    # 4. Correlations
     print("Calculating sensor correlations...")
 
     correlations = calculate_sensor_correlations(
@@ -346,20 +571,10 @@ def calculate_sensor_statistics() -> None:
         sensor_columns,
     )
 
-    # 4. Machine status
+    # 5. Machine status
     print("Calculating machine status distribution...")
 
     status_distribution = calculate_status_distribution(df)
-
-    # 5. Temporal information
-    temporal_information = {
-        "first_timestamp": str(df[TIMESTAMP_COLUMN].iloc[0]),
-        "last_timestamp": str(df[TIMESTAMP_COLUMN].iloc[-1]),
-        "sampling_interval_minutes": EXPECTED_INTERVAL_MINUTES,
-        "chronological": True,
-        "duplicate_timestamps": 0,
-        "temporal_gaps": 0,
-    }
 
     # 6. Report
     report = {
@@ -378,11 +593,13 @@ def calculate_sensor_statistics() -> None:
             "std": "Sample standard deviation (ddof=1)",
             "missing_values": "Excluded from distribution calculations",
             "temporal_variation": (
-                "Differences between adjacent one-minute observations. "
-                "Missing observations are not bridged."
+                "Differences between adjacent observations "
+                "within continuous one-minute segments only. "
+                "Temporal gaps are never bridged."
             ),
             "autocorrelation": (
-                "Pearson autocorrelation at the specified row lags."
+                "Pearson autocorrelation at the specified row lags, "
+                "calculated using pairs from continuous segments only."
             ),
             "correlation": "Pearson correlation",
         },
@@ -426,10 +643,20 @@ def calculate_sensor_statistics() -> None:
     print(f"First: {temporal_information['first_timestamp']}")
     print(f"Last: {temporal_information['last_timestamp']}")
 
+    print(
+        f"Temporal gaps: "
+        f"{temporal_information['temporal_gaps']}"
+    )
+
+    print(
+        f"Continuous segments: "
+        f"{temporal_information['continuous_segments']}"
+    )
+
     print("\nGenerated analyses:")
     print("- Distribution statistics")
-    print("- Temporal variations")
-    print("- Autocorrelation")
+    print("- Temporal variations within continuous segments")
+    print("- Autocorrelation without crossing temporal gaps")
     print("- Sensor correlation matrix")
     print("- Machine status distribution")
 

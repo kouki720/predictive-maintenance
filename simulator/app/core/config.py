@@ -10,7 +10,7 @@ DATASET_FILE = (
     / "datasets"
     / "raw"
     / "extracted"
-    / "sensor_temporal.csv"
+    / "sensor_simulation.csv"
 )
 
 
@@ -21,11 +21,11 @@ STATISTICS_FILE = (
     / "sensor_statistics.json"
 )
 
+
 APP_NAME = "Industrial IoT Sensor Simulator"
 APP_VERSION = "1.0.0"
 
 REFERENCE_TIMESTAMP = "2026-11-01 00:01:00"
-
 
 SAMPLING_INTERVAL_MINUTES = 1
 

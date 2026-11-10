@@ -1,0 +1,13 @@
+pandas
+numpy
+pyarrow
+pandera
+pydantic
+python-dateutil
+loguru
+tqdm
+pytest
+kaggle
+gdown   
+pypdf
+pipreqs

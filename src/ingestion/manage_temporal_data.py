@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 
-INPUT_FILE = Path("datasets/raw/extracted/sensor_selected.csv")
+INPUT_FILE = Path("datasets/raw/extracted/sensor_simulation.csv")
 
 OUTPUT_DIR = Path("datasets/raw/extracted")
 OUTPUT_FILE = OUTPUT_DIR / "sensor_temporal.csv"

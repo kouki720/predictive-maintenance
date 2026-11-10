@@ -1,0 +1,300 @@
+schema: '2.0'
+stages:
+  download_data:
+    cmd: python -m src.ingestion.download_data
+    deps:
+    - path: src/ingestion/download_data.py
+      hash: md5
+      md5: a1f46f998721341aef846f30014403af
+      size: 2265
+    outs:
+    - path: datasets/raw/extracted/sensor.csv
+      hash: md5
+      md5: ac2dc386843ab400a1048c9c1623daa4
+      size: 124058460
+  select_sensors:
+    cmd: python -m src.ingestion.select_sensors
+    deps:
+    - path: datasets/raw/extracted/sensor.csv
+      hash: md5
+      md5: ac2dc386843ab400a1048c9c1623daa4
+      size: 124058460
+    - path: src/ingestion/select_sensors.py
+      hash: md5
+      md5: a10a667856b97898649373f6e9e52cc8
+      size: 4431
+    outs:
+    - path: datasets/raw/extracted/sensor_selected.csv
+      hash: md5
+      md5: c4ce10be9a3a8308086260c8bd578581
+      size: 52736509
+  manage_temporal_data:
+    cmd: python -m src.ingestion.manage_temporal_data
+    deps:
+    - path: datasets/raw/extracted/sensor_simulation.csv
+      hash: md5
+      md5: a4d9b5bcbeb4e16aa90d35550a258ae0
+      size: 58395941
+    - path: src/ingestion/manage_temporal_data.py
+      hash: md5
+      md5: 91d640afb6829031024205747352de09
+      size: 3716
+    outs:
+    - path: datasets/raw/extracted/sensor_temporal.csv
+      hash: md5
+      md5: a4d9b5bcbeb4e16aa90d35550a258ae0
+      size: 58395941
+  create_sensor_metadata:
+    cmd: python -m src.metadata.create_sensor_metadata
+    deps:
+    - path: datasets/raw/extracted/sensor_temporal.csv
+      hash: md5
+      md5: a4d9b5bcbeb4e16aa90d35550a258ae0
+      size: 58395941
+    - path: src/metadata/create_sensor_metadata.py
+      hash: md5
+      md5: d2fcd833b0d06039cecb8c30391d72f6
+      size: 8701
+    outs:
+    - path: datasets/metadata/sensor_metadata.json
+      hash: md5
+      md5: 72056d3e6780e574ff203dc741a8c8a4
+      size: 10764
+  validate_dataset:
+    cmd: python -m src.validation.validate_dataset
+    deps:
+    - path: datasets/metadata/sensor_metadata.json
+      hash: md5
+      md5: 72056d3e6780e574ff203dc741a8c8a4
+      size: 10764
+    - path: datasets/raw/extracted/sensor_temporal.csv
+      hash: md5
+      md5: a4d9b5bcbeb4e16aa90d35550a258ae0
+      size: 58395941
+    - path: src/validation/validate_dataset.py
+      hash: md5
+      md5: a3dab1fb543299fb0282a0621f3504ab
+      size: 9891
+    outs:
+    - path: datasets/reports/validation/validation_report.json
+      hash: md5
+      md5: b03ca70d298ba3c1bd7bfc91d1fa8caa
+      size: 7890
+  track_lineage:
+    cmd: python -m src.lineage.track_lineage
+    deps:
+    - path: datasets/metadata/sensor_metadata.json
+      hash: md5
+      md5: 72056d3e6780e574ff203dc741a8c8a4
+      size: 10764
+    - path: datasets/raw/extracted/sensor.csv
+      hash: md5
+      md5: ac2dc386843ab400a1048c9c1623daa4
+      size: 124058460
+    - path: datasets/raw/extracted/sensor_selected.csv
+      hash: md5
+      md5: c4ce10be9a3a8308086260c8bd578581
+      size: 52736509
+    - path: datasets/raw/extracted/sensor_simulation.csv
+      hash: md5
+      md5: a4d9b5bcbeb4e16aa90d35550a258ae0
+      size: 58395941
+    - path: datasets/raw/extracted/sensor_temporal.csv
+      hash: md5
+      md5: a4d9b5bcbeb4e16aa90d35550a258ae0
+      size: 58395941
+    - path: src/lineage/track_lineage.py
+      hash: md5
+      md5: 49f0c482f9ce41004fdd6e4f3f4e754c
+      size: 5773
+    outs:
+    - path: datasets/metadata/lineage/ingestion_history.json
+      hash: md5
+      md5: eb94d3d8671d9526e6b23c2d3ef20e8a
+      size: 2740
+    - path: datasets/metadata/lineage/ingestion_manifest.json
+      hash: md5
+      md5: 79f8816a84ac8597078e84da02615b2a
+      size: 2494
+  create_bronze:
+    cmd: python -m src.storage.create_bronze
+    deps:
+    - path: datasets/raw/extracted/sensor.csv
+      hash: md5
+      md5: ac2dc386843ab400a1048c9c1623daa4
+      size: 124058460
+    - path: src/storage/create_bronze.py
+      hash: md5
+      md5: 7efa21043c74556b9811f99d53c4c355
+      size: 4974
+    outs:
+    - path: datasets/bronze/pump_sensor_data
+      hash: md5
+      md5: 89b2dcbbd7073c84f28e80f69eeaf581.dir
+      size: 124059736
+      nfiles: 2
+  load_reports:
+    cmd: python -m src.ingestion.load_reports
+    deps:
+    - path: src/ingestion/load_reports.py
+      hash: md5
+      md5: dcc01ec9b7be7e8c58d5c54e6235a12d
+      size: 2861
+    outs:
+    - path: datasets/staging/reports
+      hash: md5
+      md5: a17f664836e12c559493fb67e91e31da.dir
+      size: 93261
+      nfiles: 22
+  validate_reports:
+    cmd: python -m src.validation.validate_reports
+    deps:
+    - path: datasets/staging/reports
+      hash: md5
+      md5: a17f664836e12c559493fb67e91e31da.dir
+      size: 93261
+      nfiles: 22
+    - path: src/validation/validate_reports.py
+      hash: md5
+      md5: 4173f79e4fbba06e2c214c76cf93e562
+      size: 7047
+    outs:
+    - path: datasets/reports/validation/reports_validation.json
+      hash: md5
+      md5: 1da8ae384a6edf451ecd56edb4a1bd68
+      size: 12151
+  store_reports:
+    cmd: python -m src.storage.store_reports
+    deps:
+    - path: datasets/reports/validation/reports_validation.json
+      hash: md5
+      md5: 1da8ae384a6edf451ecd56edb4a1bd68
+      size: 12151
+    - path: datasets/staging/reports
+      hash: md5
+      md5: a17f664836e12c559493fb67e91e31da.dir
+      size: 93261
+      nfiles: 22
+    - path: src/storage/store_reports.py
+      hash: md5
+      md5: 5f270dd6f6c3578f63e168672b619c49
+      size: 4865
+    outs:
+    - path: datasets/reports/duplicates
+      hash: md5
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0
+    - path: datasets/reports/invalid
+      hash: md5
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0
+    - path: datasets/reports/valid
+      hash: md5
+      md5: a17f664836e12c559493fb67e91e31da.dir
+      size: 93261
+      nfiles: 22
+  create_report_metadata:
+    cmd: python -m src.metadata.create_report_metadata
+    deps:
+    - path: datasets/reports/valid
+      hash: md5
+      md5: a17f664836e12c559493fb67e91e31da.dir
+      size: 93261
+      nfiles: 22
+    - path: src/metadata/create_report_metadata.py
+      hash: md5
+      md5: 4c11ceedf9f50d6b3a1c010e997b8ab7
+      size: 7963
+    outs:
+    - path: datasets/reports/metadata/individual
+      hash: md5
+      md5: 1c3d3a0a153f374f66bfca708b2cddb4.dir
+      size: 23227
+      nfiles: 22
+    - path: datasets/reports/metadata/reports_metadata.json
+      hash: md5
+      md5: 55200bcf2062fc1703b4c5a4d74d2b30
+      size: 29114
+  track_report_lineage:
+    cmd: python -m src.lineage.track_report_lineage
+    deps:
+    - path: datasets/reports/metadata/reports_metadata.json
+      hash: md5
+      md5: 55200bcf2062fc1703b4c5a4d74d2b30
+      size: 29114
+    - path: datasets/reports/valid
+      hash: md5
+      md5: a17f664836e12c559493fb67e91e31da.dir
+      size: 93261
+      nfiles: 22
+    - path: datasets/reports/validation/reports_validation.json
+      hash: md5
+      md5: 1da8ae384a6edf451ecd56edb4a1bd68
+      size: 12151
+    - path: src/lineage/track_report_lineage.py
+      hash: md5
+      md5: 0327fcefa039475abb98f7d71d64600e
+      size: 8177
+    outs:
+    - path: datasets/reports/lineage/reports_lineage.json
+      hash: md5
+      md5: c2ed316b8f699f6ccfc4d1b130f972af
+      size: 43314
+  analyze_sensor_statistics:
+    cmd: python -m src.simulator.analyze_sensor_statistics
+    deps:
+    - path: datasets/raw/extracted/sensor_temporal.csv
+      hash: md5
+      md5: a4d9b5bcbeb4e16aa90d35550a258ae0
+      size: 58395941
+    - path: src/simulator/analyze_sensor_statistics.py
+      hash: md5
+      md5: 518e1e9e923207f181d65c0a5cb09d82
+      size: 17475
+    outs:
+    - path: datasets/metadata/sensor_statistics.json
+      hash: md5
+      md5: 4f28d05a553726456e09faab8fecb02b
+      size: 49650
+  run_simulation:
+    cmd: python simulator/run_simulation.py
+    deps:
+    - path: datasets/raw/extracted/sensor_selected.csv
+      hash: md5
+      md5: c4ce10be9a3a8308086260c8bd578581
+      size: 52736509
+    - path: simulator/app/core/config.py
+      hash: md5
+      md5: df851dd28eb126d0c79dd8dfa07b3fc4
+      size: 573
+    - path: simulator/app/main.py
+      hash: md5
+      md5: 0d6dbc7835ee2b99666617828b89b39a
+      size: 641
+    - path: simulator/app/routes/simulation.py
+      hash: md5
+      md5: 8bca1f64fd1cd52922b0f482e1568c95
+      size: 522
+    - path: simulator/app/services/dataset_service.py
+      hash: md5
+      md5: 995bee697314a9ad7ee2b4d17efc80ea
+      size: 2503
+    - path: simulator/app/services/simulation_service.py
+      hash: md5
+      md5: abe6e864c7c2719f2d693284fc933ebe
+      size: 7583
+    - path: simulator/app/services/time_service.py
+      hash: md5
+      md5: 2dd8871ce82386ec7254f945d8952d23
+      size: 2920
+    - path: simulator/run_simulation.py
+      hash: md5
+      md5: d64fe81cb0d3eb1121f95be7ad930737
+      size: 1985
+    outs:
+    - path: datasets/raw/extracted/sensor_simulation.csv
+      hash: md5
+      md5: a4d9b5bcbeb4e16aa90d35550a258ae0
+      size: 58395941

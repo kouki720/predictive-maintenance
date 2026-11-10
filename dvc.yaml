@@ -1,0 +1,159 @@
+
+stages:
+
+  # ==================================================
+  # 1. SENSOR DATA PIPELINE
+  # ==================================================
+
+  download_data:
+    cmd: python -m src.ingestion.download_data
+    deps:
+      - src/ingestion/download_data.py
+    outs:
+      - datasets/raw/extracted/sensor.csv:
+          persist: true
+
+  select_sensors:
+    cmd: python -m src.ingestion.select_sensors
+    deps:
+      - src/ingestion/select_sensors.py
+      - datasets/raw/extracted/sensor.csv
+    outs:
+      - datasets/raw/extracted/sensor_selected.csv
+
+  # ==================================================
+  # 2. FASTAPI SENSOR SIMULATION
+  # ==================================================
+
+  run_simulation:
+    cmd: python simulator/run_simulation.py
+    deps:
+      - simulator/run_simulation.py
+      - datasets/raw/extracted/sensor_selected.csv
+      - simulator/app/main.py
+      - simulator/app/core/config.py
+      - simulator/app/routes/simulation.py
+      - simulator/app/services/simulation_service.py
+      - simulator/app/services/dataset_service.py
+      - simulator/app/services/time_service.py
+    outs:
+      - datasets/raw/extracted/sensor_simulation.csv:
+          persist: true
+    always_changed: true
+
+  # ==================================================
+  # 3. TEMPORAL DATA MANAGEMENT
+  # ==================================================
+
+  manage_temporal_data:
+    cmd: python -m src.ingestion.manage_temporal_data
+    deps:
+      - src/ingestion/manage_temporal_data.py
+      - datasets/raw/extracted/sensor_simulation.csv
+    outs:
+      - datasets/raw/extracted/sensor_temporal.csv
+
+  # ==================================================
+  # 4. SENSOR METADATA / VALIDATION / LINEAGE
+  # ==================================================
+
+  create_sensor_metadata:
+    cmd: python -m src.metadata.create_sensor_metadata
+    deps:
+      - src/metadata/create_sensor_metadata.py
+      - datasets/raw/extracted/sensor_temporal.csv
+    outs:
+      - datasets/metadata/sensor_metadata.json
+
+  validate_dataset:
+    cmd: python -m src.validation.validate_dataset
+    deps:
+      - src/validation/validate_dataset.py
+      - datasets/raw/extracted/sensor_temporal.csv
+      - datasets/metadata/sensor_metadata.json
+    outs:
+      - datasets/reports/validation/validation_report.json
+
+  track_lineage:
+    cmd: python -m src.lineage.track_lineage
+    deps:
+      - src/lineage/track_lineage.py
+      - datasets/raw/extracted/sensor.csv
+      - datasets/raw/extracted/sensor_selected.csv
+      - datasets/raw/extracted/sensor_simulation.csv
+      - datasets/raw/extracted/sensor_temporal.csv
+      - datasets/metadata/sensor_metadata.json
+    outs:
+      - datasets/metadata/lineage/ingestion_manifest.json
+      - datasets/metadata/lineage/ingestion_history.json
+
+  create_bronze:
+    cmd: python -m src.storage.create_bronze
+    deps:
+      - src/storage/create_bronze.py
+      - datasets/raw/extracted/sensor.csv
+    outs:
+      - datasets/bronze/pump_sensor_data:
+          persist: true
+
+  # ==================================================
+  # 5. PDF REPORTS PIPELINE
+  # ==================================================
+
+  load_reports:
+    cmd: python -m src.ingestion.load_reports
+    deps:
+      - src/ingestion/load_reports.py
+    outs:
+      - datasets/staging/reports:
+          persist: true
+
+  validate_reports:
+    cmd: python -m src.validation.validate_reports
+    deps:
+      - src/validation/validate_reports.py
+      - datasets/staging/reports
+    outs:
+      - datasets/reports/validation/reports_validation.json
+
+  store_reports:
+    cmd: python -m src.storage.store_reports
+    deps:
+      - src/storage/store_reports.py
+      - datasets/staging/reports
+      - datasets/reports/validation/reports_validation.json
+    outs:
+      - datasets/reports/valid
+      - datasets/reports/invalid
+      - datasets/reports/duplicates
+
+  create_report_metadata:
+    cmd: python -m src.metadata.create_report_metadata
+    deps:
+      - src/metadata/create_report_metadata.py
+      - datasets/reports/valid
+    outs:
+      - datasets/reports/metadata/reports_metadata.json
+      - datasets/reports/metadata/individual
+
+  track_report_lineage:
+    cmd: python -m src.lineage.track_report_lineage
+    deps:
+      - src/lineage/track_report_lineage.py
+      - datasets/reports/valid
+      - datasets/reports/validation/reports_validation.json
+      - datasets/reports/metadata/reports_metadata.json
+    outs:
+      - datasets/reports/lineage/reports_lineage.json
+
+  # ==================================================
+  # 6. SENSOR STATISTICS
+  # ==================================================
+
+  analyze_sensor_statistics:
+    cmd: python -m src.simulator.analyze_sensor_statistics
+    deps:
+      - src/simulator/analyze_sensor_statistics.py
+      - datasets/raw/extracted/sensor_temporal.csv
+    outs:
+      - datasets/metadata/sensor_statistics.json
